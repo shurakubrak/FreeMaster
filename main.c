@@ -1,11 +1,10 @@
 ﻿#include "main.h"
 #include <string.h>
 
-
 bool is_master = false;
 int32_t ID = FAIL;
 in_addr_t beg_addr = 0;
-
+devs_t devs;
 msg_t msg;
 char buf_blink[sizeof(int32_t) + 1] = {BLINK,0,0,0,0};
 char buf_msg[sizeof(msg_t) + 1] = { MSG,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
@@ -13,17 +12,17 @@ char buf_msg[sizeof(msg_t) + 1] = { MSG,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 /*Потоки*/
 void* thrd_sock_read(void* arg)
 {
-	printf("Start thread for socket");
-	while (!Connect())
+	printf("Start thread for socket\n");
+	while (!s_connect())
 		ssleep(3);
 
 	uint64_t st = get_time_ms();
 	int res = 0;
 	while (1) {
-		res = Recive();
+		res = s_recive();
 		switch (res) {
 		case FAIL:
-			while (!Connect())
+			while (!s_connect())
 				ssleep(3);
 			break;
 		case SOCK_BUF_EMPTY:
@@ -39,7 +38,7 @@ void* thrd_sock_read(void* arg)
 		}
 		pthread_yield();
 	}
-	Close();
+	s_close();
 	printf("Stop thread for connection socket\n");
 	return NULL;
 }
@@ -47,15 +46,28 @@ void* thrd_sock_read(void* arg)
 
 void* thrd_master_send(void* arg)
 {
+	devs_t dev;
+	while (1) {
+		for (size_t i = 0; i < DEVS_COUNT; i++) {
+			dev.id = i;/*просто через id удобнее передать индекс*/
+			if (devs_access(&dev, READ_MIDL))
+				master_msg(&dev);
+			msleep(50);
+		}
+	}
 	return NULL;
 }
 /****************************************************/
 
 int main()
 {
-	get_par();;
-	Connect();
-	
+	if (!get_par()) {
+		printf("Settings error\n");
+		return -1;
+	}
+	s_connect();
+	devs_init(beg_addr);
+
 	/*поток чтения socket*/
 	pthread_t thread_sock_read;
 	if (!pthread_create(&thread_sock_read, NULL, thrd_sock_read, NULL))
@@ -65,22 +77,19 @@ int main()
 	if (!pthread_create(&thread_master_send, NULL, thrd_master_send, NULL))
 		pthread_detach(thread_master_send);
 
-	in_addr_t addr = beg_addr;
-	
-	
 	printf("is slave\n");
+	devs_t dev;
 	while (1) {
-		if (is_master) {
-			//Master(htonl(addr));
-			Blink(htonl(addr));
-			if (addr < beg_addr + DEV_COUNT - 1)
-				addr++;
+		for (size_t i = 0; i < DEVS_COUNT; i++) {
+			if (is_master) {
+				blink(htonl(beg_addr + i));
+				dev.id = i;
+				devs_access(&dev, CLEAR);
+				msleep(20);
+			}
 			else
-				addr = beg_addr;
-			msleep(23);
+				ssleep(1);
 		}
-		else
-			ssleep(1);
 	}
 	return 0;
 }
@@ -110,12 +119,15 @@ bool get_par()
 }
 //--------------------------------------
 
-void Master(in_addr_t addr)
+void master_msg(devs_t* dev)
 {
 	msg.id = ID;
-	memcpy(msg.tx, "I am", 4);
-	msg.temp = 24;
-	msg.light = 5000;
+	char t[] = {0,0,0,0,0,0,0,0};
+	itoa(dev->temp[0], t);
+	memcpy(msg.tx, "t.", 2);
+	memcpy(&msg.tx[2], t, 8);
+	msg.temp = dev->temp[0];
+	msg.light = dev->light[0];
 
 	buf_msg[1] = ((char*)(&msg.id))[0];
 	buf_msg[2] = ((char*)(&msg.id))[1];
@@ -140,20 +152,45 @@ void Master(in_addr_t addr)
 	buf_msg[21] = ((char*)(&msg.light))[2];
 	buf_msg[22] = ((char*)(&msg.light))[3];
 
-	Send(buf_msg, 1 + sizeof(msg_t), addr, UDP_PORT);
+	s_send(buf_msg, 1 + sizeof(msg_t), dev->addr, UDP_PORT);
 }
 //---------------------------------------------------
 
-void Blink(in_addr_t addr)
+void blink(in_addr_t addr)
 {
 	buf_blink[1] = ((char*)(&ID))[0];
 	buf_blink[2] = ((char*)(&ID))[1];
 	buf_blink[3] = ((char*)(&ID))[2];
 	buf_blink[4] = ((char*)(&ID))[3];
 	
-	//st.s_addr = addr;
-	//printf("send to addr: %s\n", inet_ntoa(st));
-	//in_addr_t a_n = htonl(addr);
-	//in_addr_t a_s = htons(addr);
-	Send(buf_blink, 1 + sizeof(int32_t), addr, UDP_PORT);
+	s_send(buf_blink, 1 + sizeof(int32_t), addr, UDP_PORT);
 }
+//----------------------------------------------------------
+
+/* reverse:  переворачиваем строку s на месте */
+void reverse(char s[])
+{
+	int i, j;
+	char c;
+
+	for (i = 0, j = strlen(s) - 1; i < j; i++, j--) {
+		c = s[i];
+		s[i] = s[j];
+		s[j] = c;
+	}
+}
+void itoa(int n, char s[])
+{
+	int i, sign;
+	if ((sign = n) < 0) n = -n;
+	i = 0;
+	do {
+		s[i++] = n % 10 + '0';
+	} while ((n /= 10) > 0);
+	if (sign < 0) s[i++] = '-';
+	s[i] = '\0';
+	reverse(s);
+}
+//-------------------------------------------------------------------------
+
+
