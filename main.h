@@ -6,7 +6,8 @@
 
 #define DEV_COUNT	200
 
-void* thread_SockUDP_read(void* arg);
+void* thrd_sock_read(void* arg);
+void* thrd_master_send(void* arg);
 bool get_par();
-void Packed(msg_t* msg, char* bf);
-void Master(char* buf, msg_t* msg, in_addr_t addr);
+void Master(in_addr_t addr);
+void Blink(in_addr_t addr);
