@@ -58,7 +58,25 @@ void* thrd_master_send(void* arg)
 	return NULL;
 }
 /****************************************************/
-
+ 
+void* thrd_blink(void* arg)
+{
+	devs_t dev;
+	while (1) {
+		for (size_t i = 0; i < DEVS_COUNT; i++) {
+			if (is_master) {
+				blink(htonl(beg_addr + i));
+				dev.id = i;
+				devs_access(&dev, CLEAR);
+				msleep(20);
+			}
+			else
+				ssleep(1);
+		}
+	}
+	return NULL;
+}
+/***************************************************/
 int main()
 {
 	if (!get_par()) {
@@ -77,19 +95,17 @@ int main()
 	if (!pthread_create(&thread_master_send, NULL, thrd_master_send, NULL))
 		pthread_detach(thread_master_send);
 
+	pthread_t thread_blink;
+	if (!pthread_create(&thread_blink, NULL, thrd_blink, NULL))
+		pthread_detach(thread_blink);
+
 	printf("is slave\n");
-	devs_t dev;
+	char s[80];
 	while (1) {
-		for (size_t i = 0; i < DEVS_COUNT; i++) {
-			if (is_master) {
-				blink(htonl(beg_addr + i));
-				dev.id = i;
-				devs_access(&dev, CLEAR);
-				msleep(20);
-			}
-			else
-				ssleep(1);
-		}
+		printf("'q' for exit\n");
+		scanf("%s", s);
+		if (s[0] == 'q')
+			break;
 	}
 	return 0;
 }
